@@ -1,170 +1,335 @@
-import math
-from datetime import datetime
-import requests
 import streamlit as st
-from requests.adapters import HTTPAdapter
+import requests
+from datetime import datetime, timedelta
+import math
 from streamlit_geolocation import streamlit_geolocation
-from urllib3.util.retry import Retry
+import extra_streamlit_components as stx
 
-st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰", layout="wide")
-KMB_MIRROR="https://winstonma.github.io/MMM-HK-Transport-ETA-Data"
-TIMEOUT=15
-MTR_DATA={'AEL': {'name': '機場快綫', 'stations': {'HOK': '香港', 'KOW': '九龍', 'TSY': '青衣', 'AIR': '機場', 'AWE': '博覽館'}}, 'TCL': {'name': '東涌綫', 'stations': {'HOK': '香港', 'KOW': '九龍', 'OLY': '奧運', 'NAC': '南昌', 'LAK': '荔景', 'TSY': '青衣', 'SUN': '欣澳', 'TUC': '東涌'}}, 'TML': {'name': '屯馬綫', 'stations': {'WKS': '烏溪沙', 'MOS': '馬鞍山', 'HEO': '恆安', 'TSH': '大水坑', 'SHM': '石門', 'CIO': '第一城', 'STW': '沙田圍', 'CKT': '車公廟', 'TAW': '大圍', 'HIK': '顯徑', 'DIH': '鑽石山', 'KAT': '啟德', 'SUW': '宋皇臺', 'TKW': '土瓜灣', 'HOM': '何文田', 'HUH': '紅磡', 'ETS': '尖東', 'AUS': '柯士甸', 'NAC': '南昌', 'MEF': '美孚', 'TWW': '荃灣西', 'KSR': '錦上路', 'YUL': '元朗', 'LOP': '朗屏', 'TIS': '天水圍', 'SIH': '兆康', 'TUM': '屯門'}}, 'TKL': {'name': '將軍澳綫', 'stations': {'NOP': '北角', 'QUB': '鰂魚涌', 'YAT': '油塘', 'TIK': '調景嶺', 'TKO': '將軍澳', 'LHP': '康城', 'HAO': '坑口', 'POA': '寶琳'}}, 'EAL': {'name': '東鐵綫', 'stations': {'ADM': '金鐘', 'EXH': '會展', 'HUH': '紅磡', 'MKK': '旺角東', 'KOT': '九龍塘', 'TAW': '大圍', 'SHT': '沙田', 'FOT': '火炭', 'RAC': '馬場', 'UNI': '大學', 'TAP': '大埔墟', 'TWO': '太和', 'FAN': '粉嶺', 'SHS': '上水', 'LOW': '羅湖', 'LMC': '落馬洲'}}, 'SIL': {'name': '南港島綫', 'stations': {'ADM': '金鐘', 'OCP': '海洋公園', 'WCH': '黃竹坑', 'LET': '利東', 'SOH': '海怡半島'}}, 'TWL': {'name': '荃灣綫', 'stations': {'CEN': '中環', 'ADM': '金鐘', 'TST': '尖沙咀', 'JOR': '佐敦', 'YMT': '油麻地', 'MOK': '旺角', 'PRE': '太子', 'SSP': '深水埗', 'CSW': '長沙灣', 'LCK': '荔枝角', 'MEF': '美孚', 'LAK': '荔景', 'KWF': '葵芳', 'KWH': '葵興', 'TWH': '大窩口', 'TSW': '荃灣'}}, 'ISL': {'name': '港島綫', 'stations': {'KET': '堅尼地城', 'HKU': '香港大學', 'SYP': '西營盤', 'SHW': '上環', 'CEN': '中環', 'ADM': '金鐘', 'WAC': '灣仔', 'CAB': '銅鑼灣', 'TIH': '天后', 'FOH': '炮台山', 'NOP': '北角', 'QUB': '鰂魚涌', 'TAK': '太古', 'SWH': '西灣河', 'SKW': '筲箕灣', 'HFC': '杏花邨', 'CHW': '柴灣'}}, 'KTL': {'name': '觀塘綫', 'stations': {'WHA': '黃埔', 'HOM': '何文田', 'YMT': '油麻地', 'MOK': '旺角', 'PRE': '太子', 'SKM': '石硤尾', 'KOT': '九龍塘', 'LOF': '樂富', 'WTS': '黃大仙', 'DIH': '鑽石山', 'CHH': '彩虹', 'KOB': '九龍灣', 'NTK': '牛頭角', 'KWT': '觀塘', 'LAT': '藍田', 'YAT': '油塘', 'TIK': '調景嶺'}}, 'DRL': {'name': '迪士尼綫', 'stations': {'SUN': '欣澳', 'DIS': '迪士尼'}}}
-ALL_STATIONS={}
-for x in MTR_DATA.values(): ALL_STATIONS.update(x["stations"])
+# ==========================================
+# 0. 輔助函數：計算 GPS 距離 (Haversine formula)
+# ==========================================
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371000 # 地球半徑 (米)
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    
+    a = math.sin(delta_phi/2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2.0)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c # 回傳距離 (米)
 
-@st.cache_resource
-def http():
-    retry=Retry(total=3,backoff_factor=.5,status_forcelist=(429,500,502,503,504),allowed_methods=frozenset(["GET"]),raise_on_status=False)
-    s=requests.Session(); a=HTTPAdapter(max_retries=retry,pool_connections=20,pool_maxsize=20)
-    s.mount("https://",a); s.mount("http://",a); return s
+# ==========================================
+# 1. 港鐵 (MTR) 數據設定
+# ==========================================
+MTR_DATA = {
+    "AEL": {"name": "機場快綫", "stations": {"HOK": "香港", "KOW": "九龍", "TSY": "青衣", "AIR": "機場", "AWE": "博覽館"}},
+    "TCL": {"name": "東涌綫", "stations": {"HOK": "香港", "KOW": "九龍", "OLY": "奧運", "NAC": "南昌", "LAK": "荔景", "TSY": "青衣", "SUN": "欣澳", "TUC": "東涌"}},
+    "TML": {"name": "屯馬綫", "stations": {"WKS": "烏溪沙", "MOS": "馬鞍山", "HEO": "恆安", "TSH": "大水坑", "SHM": "石門", "CIO": "第一城", "STW": "沙田圍", "CKT": "車公廟", "TAW": "大圍", "HIK": "顯徑", "DIH": "鑽石山", "KAT": "啟德", "SUW": "宋皇臺", "TKW": "土瓜灣", "HOM": "何文田", "HUH": "紅磡", "ETS": "尖東", "AUS": "柯士甸", "NAC": "南昌", "MEF": "美孚", "TWW": "荃灣西", "KSR": "錦上路", "YUL": "元朗", "LOP": "朗屏", "TIS": "天水圍", "SIH": "兆康", "TUM": "屯門"}},
+    "TKL": {"name": "將軍澳綫", "stations": {"NOP": "北角", "QUB": "鰂魚涌", "YAT": "油塘", "TIK": "調景嶺", "TKO": "將軍澳", "LHP": "康城", "HAO": "Hang Hau", "POA": "寶琳"}},
+    "EAL": {"name": "東鐵綫", "stations": {"ADM": "金鐘", "EXH": "會展", "HUH": "紅磡", "MKK": "旺角東", "KOT": "九龍塘", "TAW": "大圍", "SHT": "沙田", "FOT": "火炭", "RAC": "馬場", "UNI": "大學", "TAP": "大埔墟", "TWO": "太和", "FAN": "粉嶺", "SHS": "上水", "LOW": "羅湖", "LMC": "落馬洲"}},
+    "SIL": {"name": "南港島綫", "stations": {"ADM": "金鐘", "OCP": "海洋公園", "WCH": "黃竹坑", "LET": "利東", "SOH": "海怡半島"}},
+    "TWL": {"name": "荃灣綫", "stations": {"CEN": "中環", "ADM": "金鐘", "TST": "尖沙咀", "JOR": "佐敦", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SSP": "深水埗", "CSW": "長沙灣", "LCK": "荔枝角", "MEF": "美孚", "LAK": "荔景", "KWF": "葵芳", "KWH": "葵興", "TWH": "大窩口", "TSW": "荃灣"}},
+    "ISL": {"name": "港島綫", "stations": {"KET": "堅尼地城", "HKU": "香港大學", "SYP": "西營盤", "SHW": "上環", "CEN": "中環", "ADM": "金鐘", "WAC": "灣仔", "CAB": "銅鑼灣", "TIH": "天后", "FOH": "炮台山", "NOP": "北角", "QUB": "鰂魚涌", "TAK": "太古", "SWH": "西灣河", "SKW": "筲箕灣", "HFC": "杏花邨", "CHW": "柴灣"}},
+    "KTL": {"name": "觀塘綫", "stations": {"WHA": "黃埔", "HOM": "何文田", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SKM": "石硤尾", "KOT": "九龍塘", "LOF": "樂富", "WTS": "黃大仙", "DIH": "鑽石山", "CHH": "彩虹", "KOB": "九龍灣", "NTK": "牛頭角", "KWT": "觀塘", "LAT": "藍田", "YAT": "油塘", "TIK": "調景嶺"}},
+    "DRL": {"name": "迪士尼綫", "stations": {"SUN": "欣澳", "DIS": "迪士尼"}}
+}
 
-def get_json(url):
-    r=http().get(url,timeout=TIMEOUT); r.raise_for_status(); return r.json()
+ALL_STATIONS = {}
+for line_info in MTR_DATA.values():
+    ALL_STATIONS.update(line_info["stations"])
 
-def rows(value):
-    if isinstance(value,list): return value
-    if not isinstance(value,dict): return []
-    data=value.get("data",value)
-    if isinstance(data,list): return data
-    if isinstance(data,dict):
-        out=[]
-        for k,v in data.items():
-            if isinstance(v,dict):
-                item=dict(v); item.setdefault("id",k); out.append(item)
-        return out
-    return []
 
-def dist(lat1,lon1,lat2,lon2):
-    r=6371000; p1,p2=math.radians(lat1),math.radians(lat2)
-    dp=math.radians(lat2-lat1); dl=math.radians(lon2-lon1)
-    a=math.sin(dp/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    return r*2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+# ==========================================
+# 2. API 數據快取函數
+# ==========================================
+@st.cache_data
+def load_bus_metadata():
+    base_url = "https://data.etabus.gov.hk/v1/transport/kmb"
+    routes = requests.get(f"{base_url}/route").json().get("data", [])
+    stops_raw = requests.get(f"{base_url}/stop").json().get("data", [])
+    route_stops = requests.get(f"{base_url}/route-stop").json().get("data", [])
+    
+    stops_dict = {
+        s["stop"]: {
+            "name_en": s.get("name_en", ""),
+            "name_tc": s.get("name_tc", ""),
+            "lat": float(s.get("lat", 0)) if s.get("lat") else 0.0,
+            "lon": float(s.get("long", 0)) if s.get("long") else 0.0
+        } 
+        for s in stops_raw
+    }
+    return routes, stops_dict, route_stops
 
-def sort_key(v):
-    v=str(v); n=''.join(c for c in v if c.isdigit()); return (int(n) if n else 999999,v)
+@st.cache_data
+def load_ctb_routes():
+    url = "https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/ctb"
+    return requests.get(url).json().get("data", [])
 
-@st.cache_data(ttl=86400,show_spinner="正在下載九巴／龍運車站資料...")
-def kmb_stops():
-    result={}
-    for item in rows(get_json(f"{KMB_MIRROR}/kmb/stops/allstops.json")):
-        sid=str(item.get("stop") or item.get("stop_id") or item.get("id") or "")
-        if not sid: continue
-        rv=item.get("routes") or []
-        if isinstance(rv,str): rv=[x.strip() for x in rv.split(',') if x.strip()]
-        try: lat=float(item.get("lat") or item.get("latitude") or 0); lon=float(item.get("long") or item.get("lon") or item.get("longitude") or 0)
-        except (TypeError,ValueError): lat=lon=0
-        result[sid]={"name":item.get("name_tc") or item.get("name_zh") or item.get("name") or f"車站 {sid}","lat":lat,"lon":lon,"routes":sorted({str(x) for x in rv},key=sort_key)}
-    if not result: raise ValueError("九巴車站資料為空")
-    return result
+@st.cache_data
+def get_ctb_route_stops(route, direction):
+    url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/ctb/{route}/{direction}"
+    route_stops = requests.get(url).json().get("data", [])
+    stop_details = {}
+    for rs in route_stops:
+        stop_id = rs["stop"]
+        stop_url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/{stop_id}"
+        stop_details[stop_id] = requests.get(stop_url).json().get("data", {})
+    return route_stops, stop_details
 
-@st.cache_data(ttl=86400,show_spinner="正在下載九巴／龍運路線資料...")
-def kmb_routes():
+
+# ==========================================
+# 3. 自動刷新模塊 (每 60 秒更新一次)
+# ==========================================
+@st.fragment(run_every=60)
+def render_mtr_eta(selected_line, selected_sta):
+    url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={selected_line}&sta={selected_sta}&lang=tc"
     try:
-        r=rows(get_json(f"{KMB_MIRROR}/kmb/routes/allroutes.json"))
-        if r:return r
-    except Exception: pass
-    return get_json("https://data.etabus.gov.hk/v1/transport/kmb/route").get("data",[])
+        data = requests.get(url).json()
+        if data.get("status") == 0 or "data" not in data:
+            st.warning("目前沒有實時數據（服務可能已暫停）。")
+            return
 
-def rnum(x): return str(x.get("route") or x.get("route_id") or x.get("route_no") or x.get("id") or "")
-def rbound(x):
-    v=str(x.get("bound") or x.get("dir") or x.get("direction") or "O").lower()
-    return "I" if v in ("i","inbound","in") else "O"
-def rst(x): return str(x.get("service_type") or x.get("serviceType") or "1")
-def rdest(x,b):
-    return (x.get("dest_tc") or x.get("destination_tc") or x.get("dest") or "去程") if b=="O" else (x.get("orig_tc") or x.get("origin_tc") or x.get("orig") or x.get("dest_tc") or "回程")
+        schedule_data = data["data"].get(f"{selected_line}-{selected_sta}", {})
+        if not schedule_data:
+            st.info("此車站目前沒有即將到達的列車。")
+            return
 
-def parse_eta(v): return datetime.fromisoformat(v) if v else None
-def eta_label(t):
-    now=datetime.now(t.tzinfo) if t.tzinfo else datetime.now(); m=math.floor((t-now).total_seconds()/60)
-    return "即將抵達" if m<=0 else f"{m} 分鐘"
+        col1, col2 = st.columns(2)
+        def draw_trains(dir_key, title):
+            if dir_key in schedule_data and schedule_data[dir_key]:
+                st.markdown(f"**{title}**")
+                for train in schedule_data[dir_key]:
+                    dest_name = ALL_STATIONS.get(train.get("dest", ""), train.get("dest", ""))
+                    ttnt = train.get("ttnt", "0")
+                    plat = train.get("plat", "-")
+                    arrival_time = train.get("time", "")[-8:-3]
+                    st.success(f"**{plat} 號月台** ➔ **{dest_name}**\n\n即將到達： **{ttnt} 分鐘** ({arrival_time})")
+            else:
+                st.write("沒有列車數據。")
 
-def show_kmb_eta(stop,route,bound=None,service_type="1"):
-    try: data=get_json(f"https://data.etabus.gov.hk/v1/transport/kmb/eta/{stop}/{route}/{service_type}").get("data",[])
-    except Exception as e: st.error(f"未能下載九巴／龍運到站資料：{e}"); return
-    data=[x for x in data if (not bound or x.get("dir")==bound) and (x.get("eta") or x.get("rmk_tc"))]
-    if not data: st.info("此方向目前沒有即將到達的班次。")
-    for x in data:
-        t=parse_eta(x.get("eta")); dest=x.get("dest_tc") or "未知終點"; remark=x.get("rmk_tc") or ""
-        if t: st.success(f"🚌 **{route} 往 {dest}**｜**{eta_label(t)}**（{t.strftime('%H:%M')}） {remark}")
-        else: st.warning(f"🚌 **{route} 往 {dest}**｜{remark or '未有實時資料'}")
+        with col1: draw_trains("UP", "⬆️ 上行列車")
+        with col2: draw_trains("DOWN", "⬇️ 下行列車")
+        st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
+    except Exception as e:
+        st.error(f"獲取數據時發生錯誤: {e}")
 
-def show_mtr(line,station):
-    try: data=get_json(f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line}&sta={station}&lang=tc").get("data",{}).get(f"{line}-{station}",{})
-    except Exception as e: st.error(f"未能下載港鐵資料：{e}"); return
-    if not data: st.info("此站目前沒有列車資料。"); return
-    c1,c2=st.columns(2)
-    for c,k,title in ((c1,"UP","⬆️ 上行"),(c2,"DOWN","⬇️ 下行")):
-        with c:
-            st.markdown(f"**{title}**")
-            for x in data.get(k,[]): st.success(f"**{x.get('plat','-')} 號月台 ➜ {ALL_STATIONS.get(x.get('dest'),x.get('dest') or '未知終點')}**｜{x.get('ttnt','-')} 分鐘")
+@st.fragment(run_every=60)
+def render_kmb_eta(stop, route, service_type, bound):
+    eta_url = f"https://data.etabus.gov.hk/v1/transport/kmb/eta/{stop}/{route}/{service_type}"
+    try:
+        eta_data = requests.get(eta_url).json().get("data", [])
+        eta_data = [eta for eta in eta_data if eta["dir"] == bound]
+        
+        if not eta_data:
+            st.info("目前沒有即將到達的巴士，或服務已暫停。")
+        else:
+            for eta in eta_data:
+                eta_time_str = eta.get("eta")
+                rmk = eta.get("rmk_tc", "")
+                company = eta.get("co", "KMB/LWB")
+                dest = eta.get("dest_tc", "")
+                
+                if not eta_time_str:
+                    st.warning(f"🚍 **路線:** {route} ({company}) | 狀態: {rmk or '原定班次 (未有實時數據)'}")
+                    continue
+                
+                eta_dt = datetime.fromisoformat(eta_time_str)
+                diff_minutes = int((eta_dt - datetime.now(eta_dt.tzinfo)).total_seconds() / 60)
+                time_msg = "即將抵達" if diff_minutes <= 0 else f"{diff_minutes} 分鐘"
+                
+                st.success(f"🚍 **路線 {route}** ({company}) ➔ **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
+        st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
+    except Exception as e:
+        st.error(f"獲取數據時發生錯誤: {e}")
 
-@st.cache_data(ttl=86400)
-def ctb_routes(): return get_json("https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/ctb").get("data",[])
-@st.cache_data(ttl=3600)
-def ctb_stops(route,direction):
-    b="https://rt.data.gov.hk/v1/transport/citybus-nwfb"; rs=get_json(f"{b}/route-stop/ctb/{route}/{direction}").get("data",[]); d={}
-    for x in rs:
-        sid=x.get("stop")
-        if sid:d[sid]=get_json(f"{b}/stop/{sid}").get("data",{})
-    return rs,d
-def show_ctb(stop,route,direction):
-    try:data=[x for x in get_json(f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/ctb/{stop}/{route}").get("data",[]) if x.get("dir")==direction]
-    except Exception as e:st.error(f"未能下載城巴資料：{e}");return
-    if not data:st.info("目前沒有即將到達的班次。")
-    for x in data:
-        t=parse_eta(x.get("eta")); st.success(f"🟡 **往 {x.get('dest_tc','未知終點')}**｜**{eta_label(t)}**（{t.strftime('%H:%M')}）") if t else st.warning(x.get("rmk_tc") or "未有實時資料")
+@st.fragment(run_every=60)
+def render_ctb_eta(stop, route, dir_code):
+    eta_url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/ctb/{stop}/{route}"
+    try:
+        eta_data = requests.get(eta_url).json().get("data", [])
+        eta_data = [eta for eta in eta_data if eta.get("dir") == dir_code]
+        
+        if not eta_data:
+            st.info("目前沒有即將到達的巴士。")
+        else:
+            for eta in eta_data:
+                eta_time = eta.get("eta")
+                rmk = eta.get("rmk_tc", "")
+                dest = eta.get("dest_tc", "")
+                
+                if not eta_time:
+                    st.warning(f"🟡 **狀態:** {rmk or '原定班次 (未有實時數據)'}")
+                    continue
+                
+                eta_dt = datetime.fromisoformat(eta_time)
+                diff_mins = int((eta_dt - datetime.now(eta_dt.tzinfo)).total_seconds() / 60)
+                time_msg = "即將抵達" if diff_mins <= 0 else f"{diff_mins} 分鐘"
+                
+                st.success(f"🟡 **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
+        st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
+    except Exception as e:
+        st.error(f"獲取數據時發生錯誤: {e}")
+
+
+# ==========================================
+# 4. 主介面佈局
+# ==========================================
+st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
+
+cookie_manager = stx.CookieManager(key="cookie_manager_init")
+expire_date = datetime.now() + timedelta(days=365)
 
 st.title("🇭🇰 香港交通實時到站")
-near,mtr,kmb,ctb=st.tabs(["📍 附近路線","🚇 港鐵","🚌 九巴及龍運","🟡 城巴"])
-with near:
-    st.subheader("📍 尋找附近巴士站"); radius=st.slider("搜尋範圍（米）",200,2000,500,100)
-    st.markdown("#### 按下方 **Get Location** 按鈕取得 GPS 位置")
-    location=streamlit_geolocation()
-    with st.expander("若看不到 GPS 按鈕，可手動輸入位置"):
-        manual=st.checkbox("使用手動位置"); c1,c2=st.columns(2); ml=c1.number_input("緯度",value=22.3692,format="%.6f"); mn=c2.number_input("經度",value=114.1201,format="%.6f")
-    lat=lon=None
-    if isinstance(location,dict) and location.get("latitude") is not None: lat=float(location["latitude"]);lon=float(location["longitude"]);st.success(f"✅ GPS 位置：{lat:.5f}, {lon:.5f}")
-    elif manual:lat,lon=ml,mn;st.success(f"✅ 手動位置：{lat:.5f}, {lon:.5f}")
-    else:st.warning("請按 Get Location 並允許瀏覽器取得位置，或展開手動位置。")
-    if lat is not None:
-        try:
-            sd=kmb_stops(); rd=kmb_routes(); nearby=[]
-            for sid,info in sd.items():
-                if info["lat"] and info["lon"]:
-                    d=dist(lat,lon,info["lat"],info["lon"])
-                    if d<=radius:nearby.append((sid,info,d))
-            nearby.sort(key=lambda x:x[2])
-            available=sorted({r for _,i,_ in nearby for r in i["routes"]},key=sort_key)
-            if not available:st.warning("範圍內找不到九巴／龍運車站，請增大搜尋範圍。")
-            else:
-                route=st.selectbox("1. 選擇路線",available,key="near_route")
-                meta=[x for x in rd if rnum(x)==route]; dirs={}
-                for x in meta:
-                    b=rbound(x);sv=rst(x);dirs[f"{b}_{sv}"]=f"往 {rdest(x,b)}（班次類型 {sv}）"
-                if not dirs:dirs={"O_1":"去程","I_1":"回程"}
-                direction=st.selectbox("2. 選擇方向",list(dirs),format_func=lambda x:dirs[x],key="near_dir");bound,stype=direction.split("_",1)
-                filtered=[x for x in nearby if route in x[1]["routes"]]
-                opts={sid:f"{i['name']}（{int(d)} 米）" for sid,i,d in filtered}
-                if not opts:st.info("所選路線在目前搜尋範圍內沒有車站。")
+
+tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
+
+# --- 附近路線分頁 ---
+with tab_nearby:
+    st.subheader("📍 尋找附近巴士路線")
+    st.info("提示：點擊下方按鈕以取得 GPS 定位。目前僅支援九巴及龍運路線。")
+    
+    search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100, key="nearby_radius")
+    
+    location = streamlit_geolocation()
+    routes, stops_dict, route_stops = load_bus_metadata()
+    
+    if location and location.get('latitude') and location.get('longitude'):
+        user_lat = location['latitude']
+        user_lon = location['longitude']
+        
+        st.success(f"✅ 成功取得位置！(緯度: {user_lat:.4f}, 經度: {user_lon:.4f})")
+        
+        nearby_stops_info = {}
+        for stop_id, info in stops_dict.items():
+            if info["lat"] > 0 and info["lon"] > 0:
+                dist = calculate_distance(user_lat, user_lon, info["lat"], info["lon"])
+                if dist <= search_radius:
+                    nearby_stops_info[stop_id] = {"name": info["name_tc"], "dist": dist}
+        
+        if nearby_stops_info:
+            nearby_stop_ids = set(nearby_stops_info.keys())
+            nearby_rs = [rs for rs in route_stops if rs["stop"] in nearby_stop_ids]
+            
+            if nearby_rs:
+                available_routes = sorted(list(set(rs["route"] for rs in nearby_rs)))
+                sel_nearby_route = st.selectbox("1. 選擇附近的巴士路線：", available_routes, key="nb_route")
+                
+                rs_for_sel_route = [rs for rs in nearby_rs if rs["route"] == sel_nearby_route]
+                route_meta = [r for r in routes if r["route"] == sel_nearby_route]
+                
+                available_dirs = {}
+                for rs in rs_for_sel_route:
+                    key = f"{rs['bound']}_{rs['service_type']}"
+                    if key not in available_dirs:
+                        dest = "未知"
+                        for rm in route_meta:
+                            if rm["bound"] == rs["bound"] and rm["service_type"] == rs["service_type"]:
+                                dest = rm["dest_tc"]
+                                break
+                        available_dirs[key] = f"往 {dest} (常規/特別班次 {rs['service_type']})"
+                
+                sel_nearby_dir = st.selectbox("2. 選擇終點站：", list(available_dirs.keys()), format_func=lambda x: available_dirs[x], key="nb_dir")
+                nb_bound, nb_srv_type = sel_nearby_dir.split("_")
+                
+                final_stops = [rs for rs in rs_for_sel_route if rs["bound"] == nb_bound and rs["service_type"] == nb_srv_type]
+                final_stops.sort(key=lambda x: nearby_stops_info[x["stop"]]["dist"])
+                
+                if final_stops:
+                    stop_opts = {rs["stop"]: f"{nearby_stops_info[rs['stop']]['name']} (距 {int(nearby_stops_info[rs['stop']]['dist'])} 米)" for rs in final_stops}
+                    sel_nearby_stop = st.selectbox("3. 選擇附近的車站：", list(stop_opts.keys()), format_func=lambda x: stop_opts[x], key="nb_stop")
+                    
+                    st.divider()
+                    st.markdown(f"**📍 {stop_opts[sel_nearby_stop]}**")
+                    render_kmb_eta(sel_nearby_stop, sel_nearby_route, nb_srv_type, nb_bound)
                 else:
-                    stop=st.selectbox("3. 選擇附近車站",list(opts),format_func=lambda x:opts[x],key="near_stop");st.divider();show_kmb_eta(stop,route,bound,stype)
-        except Exception as e:st.error(f"未能下載附近巴士資料：{e}")
-with mtr:
-    st.subheader("🚇 港鐵下班車");line=st.selectbox("選擇港鐵路綫",list(MTR_DATA),format_func=lambda x:MTR_DATA[x]["name"]);station=st.selectbox("選擇車站",list(MTR_DATA[line]["stations"]),format_func=lambda x:MTR_DATA[line]["stations"][x]);st.divider();show_mtr(line,station)
-with kmb:
+                    st.warning("所選方向在附近沒有車站。")
+            else:
+                st.warning("範圍內未能找到任何巴士路線。")
+        else:
+            st.warning("範圍內未能找到九巴/龍運巴士站，請嘗試增大搜尋範圍。")
+    else:
+        st.warning("⏳ 請點擊上方組件中的定位按鈕以允許取得您的位置。")
+
+
+# --- 港鐵分頁 ---
+with tab_mtr:
+    st.subheader("🚇 港鐵下班車")
+    
+    saved_mtr_line = cookie_manager.get("saved_mtr_line")
+    line_keys = list(MTR_DATA.keys())
+    line_idx = line_keys.index(saved_mtr_line) if saved_mtr_line in line_keys else 0
+    
+    sel_line = st.selectbox("選擇港鐵路綫：", options=line_keys, index=line_idx, format_func=lambda x: f"{MTR_DATA[x]['name']}", key="mtr_line")
+    if sel_line != saved_mtr_line:
+        cookie_manager.set("saved_mtr_line", sel_line, expires_at=expire_date, key="set_cookie_mtr_line")
+    
+    sta_keys = list(MTR_DATA[sel_line]["stations"].keys())
+    saved_mtr_sta = cookie_manager.get("saved_mtr_sta")
+    sta_idx = sta_keys.index(saved_mtr_sta) if saved_mtr_sta in sta_keys else 0
+    
+    sel_sta = st.selectbox("選擇車站：", options=sta_keys, index=sta_idx, format_func=lambda x: f"{MTR_DATA[sel_line]['stations'][x]}", key="mtr_sta")
+    if sel_sta != saved_mtr_sta:
+        cookie_manager.set("saved_mtr_sta", sel_sta, expires_at=expire_date, key="set_cookie_mtr_sta")
+    
+    st.divider()
+    render_mtr_eta(sel_line, sel_sta)
+
+
+# --- 九巴/龍運分頁 ---
+with tab_bus:
     st.subheader("🚌 九巴及龍運下班車")
-    try:
-        sd=kmb_stops();rd=kmb_routes();routes=sorted({r for i in sd.values() for r in i["routes"]},key=sort_key);route=st.selectbox("1. 選擇路線",routes,key="k_route")
-        meta=[x for x in rd if rnum(x)==route];dirs={}
-        for x in meta:
-            b=rbound(x);sv=rst(x);dirs[f"{b}_{sv}"]=f"往 {rdest(x,b)}（班次類型 {sv}）"
-        if not dirs:dirs={"O_1":"去程","I_1":"回程"}
-        direction=st.selectbox("2. 選擇方向",list(dirs),format_func=lambda x:dirs[x],key="k_dir");bound,stype=direction.split("_",1)
-        opts={sid:i["name"] for sid,i in sd.items() if route in i["routes"]};stop=st.selectbox("3. 選擇車站",list(opts),format_func=lambda x:opts[x],key="k_stop");st.divider();show_kmb_eta(stop,route,bound,stype)
-    except Exception as e:st.error(f"未能下載九巴／龍運資料：{e}")
-with ctb:
+    routes, stops_dict, route_stops = load_bus_metadata()
+
+    if routes:
+        unique_routes = sorted(list(set([r["route"] for r in routes])))
+        
+        saved_kmb_route = cookie_manager.get("saved_kmb_route")
+        kmb_idx = unique_routes.index(saved_kmb_route) if saved_kmb_route in unique_routes else 0
+        
+        sel_route = st.selectbox("1. 選擇巴士路綫：", unique_routes, index=kmb_idx, key="kmb_route")
+        if sel_route != saved_kmb_route:
+            cookie_manager.set("saved_kmb_route", sel_route, expires_at=expire_date, key="set_cookie_kmb_route")
+        
+        route_dirs = [r for r in routes if r["route"] == sel_route]
+        dir_options = {f"{r['bound']}_{r['service_type']}": f"往 {r['dest_tc']} (常規/特別班次 {r['service_type']})" for r in route_dirs}
+        sel_dir = st.selectbox("2. 選擇終點站：", options=list(dir_options.keys()), format_func=lambda x: dir_options[x], key="kmb_dir")
+        bound, srv_type = sel_dir.split("_")
+        
+        stops_for_route = sorted([rs for rs in route_stops if rs["route"] == sel_route and rs["bound"] == bound and rs["service_type"] == srv_type], key=lambda x: int(x["seq"]))
+        stop_opts = {rs["stop"]: f"{rs['seq']}. {stops_dict.get(rs['stop'], {}).get('name_tc', '未知車站')}" for rs in stops_for_route}
+        sel_stop = st.selectbox("3. 選擇車站：", options=list(stop_opts.keys()), format_func=lambda x: stop_opts[x], key="kmb_stop")
+        
+        st.divider()
+        render_kmb_eta(sel_stop, sel_route, srv_type, bound)
+
+
+# --- 城巴分頁 ---
+with tab_ctb:
     st.subheader("🟡 城巴下班車")
-    try:
-        data=ctb_routes();routes=sorted({x["route"] for x in data},key=sort_key);route=st.selectbox("1. 選擇路線",routes,key="c_route");meta=next(x for x in data if x["route"]==route);ds={"outbound":f"往 {meta.get('dest_tc','終點站')}","inbound":f"往 {meta.get('orig_tc','起點站')}"};di=st.selectbox("2. 選擇方向",list(ds),format_func=lambda x:ds[x]);rs,details=ctb_stops(route,di);opts={x["stop"]:f"{x.get('seq','-')}. {details.get(x['stop'],{}).get('name_tc','未知車站')}" for x in rs};stop=st.selectbox("3. 選擇車站",list(opts),format_func=lambda x:opts[x]);st.divider();show_ctb(stop,route,"O" if di=="outbound" else "I")
-    except Exception as e:st.error(f"未能下載城巴資料：{e}")
+    ctb_routes = load_ctb_routes()
+    
+    if ctb_routes:
+        route_list = [r["route"] for r in ctb_routes]
+        
+        saved_ctb_route = cookie_manager.get("saved_ctb_route")
+        ctb_idx = route_list.index(saved_ctb_route) if saved_ctb_route in route_list else 0
+        
+        sel_ctb_route = st.selectbox("1. 選擇城巴路綫：", route_list, index=ctb_idx, key="ctb_route_sel")
+        if sel_ctb_route != saved_ctb_route:
+            cookie_manager.set("saved_ctb_route", sel_ctb_route, expires_at=expire_date, key="set_cookie_ctb_route")
+        
+        route_meta = next(r for r in ctb_routes if r["route"] == sel_ctb_route)
+        dir_opts = {"outbound": f"往 {route_meta.get('dest_tc', '終點站')}", "inbound": f"往 {route_meta.get('orig_tc', '起點站')}"}
+        sel_ctb_dir = st.selectbox("2. 選擇終點站：", options=list(dir_opts.keys()), format_func=lambda x: dir_opts[x], key="ctb_dir")
+        
+        route_stops, stop_details = get_ctb_route_stops(sel_ctb_route, sel_ctb_dir)
+        
+        if route_stops:
+            stop_opts = {rs["stop"]: f"{rs['seq']}. {stop_details.get(rs['stop'], {}).get('name_tc', '未知車站')}" for rs in route_stops}
+            sel_ctb_stop = st.selectbox("3. 選擇車站：", options=list(stop_opts.keys()), format_func=lambda x: stop_opts[x], key="ctb_stop")
+            
+            st.divider()
+            dir_code = "O" if sel_ctb_dir == "outbound" else "I"
+            render_ctb_eta(sel_ctb_stop, sel_ctb_route, dir_code)
+        else:
+            st.warning("此方向沒有車站數據。")
