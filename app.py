@@ -37,6 +37,7 @@ ALL_STATIONS = {}
 for line_info in MTR_DATA.values():
     ALL_STATIONS.update(line_info["stations"])
 
+
 # ==========================================
 # 2. API 數據快取函數
 # ==========================================
@@ -47,7 +48,6 @@ def load_bus_metadata():
     stops_raw = requests.get(f"{base_url}/stop").json().get("data", [])
     route_stops = requests.get(f"{base_url}/route-stop").json().get("data", [])
     
-    # 保存座標供 GPS 距離計算使用
     stops_dict = {
         s["stop"]: {
             "name_en": s.get("name_en", ""),
@@ -75,37 +75,10 @@ def get_ctb_route_stops(route, direction):
         stop_details[stop_id] = requests.get(stop_url).json().get("data", {})
     return route_stops, stop_details
 
+
 # ==========================================
 # 3. 自動刷新模塊 (每 60 秒更新一次)
 # ==========================================
-@st.fragment(run_every=60)
-def render_nearby_eta(stop_id):
-    # 這是另一個九巴 API：直接取得特定車站的所有巴士班次
-    eta_url = f"https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/{stop_id}"
-    try:
-        eta_data = requests.get(eta_url).json().get("data", [])
-        valid_etas = [eta for eta in eta_data if eta.get("eta")]
-        
-        if not valid_etas:
-            st.info("此車站目前沒有即將到達的巴士。")
-        else:
-            # 依據到達時間排序
-            valid_etas.sort(key=lambda x: x["eta"])
-            
-            for eta in valid_etas:
-                route = eta.get("route", "")
-                dest = eta.get("dest_tc", "")
-                rmk = eta.get("rmk_tc", "")
-                eta_dt = datetime.fromisoformat(eta.get("eta"))
-                
-                diff_mins = int((eta_dt - datetime.now(eta_dt.tzinfo)).total_seconds() / 60)
-                time_msg = "即將抵達" if diff_mins <= 0 else f"{diff_mins} 分鐘"
-                
-                st.success(f"🚍 **路線 {route}** ➔ **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
-        st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
-    except Exception as e:
-        st.error(f"獲取數據時發生錯誤: {e}")
-
 @st.fragment(run_every=60)
 def render_mtr_eta(selected_line, selected_sta):
     url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={selected_line}&sta={selected_sta}&lang=tc"
@@ -156,14 +129,14 @@ def render_kmb_eta(stop, route, service_type, bound):
                 dest = eta.get("dest_tc", "")
                 
                 if not eta_time_str:
-                    st.warning(f"🚍 **公司:** {company} | 狀態: {rmk or '原定班次 (未有實時數據)'}")
+                    st.warning(f"🚍 **路線:** {route} ({company}) | 狀態: {rmk or '原定班次 (未有實時數據)'}")
                     continue
                 
                 eta_dt = datetime.fromisoformat(eta_time_str)
                 diff_minutes = int((eta_dt - datetime.now(eta_dt.tzinfo)).total_seconds() / 60)
                 time_msg = "即將抵達" if diff_minutes <= 0 else f"{diff_minutes} 分鐘"
                 
-                st.success(f"🚍 **公司:** {company} ➔ **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
+                st.success(f"🚍 **路線 {route}** ({company}) ➔ **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
         st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
     except Exception as e:
         st.error(f"獲取數據時發生錯誤: {e}")
@@ -196,48 +169,80 @@ def render_ctb_eta(stop, route, dir_code):
     except Exception as e:
         st.error(f"獲取數據時發生錯誤: {e}")
 
+
 # ==========================================
 # 4. 主介面佈局
 # ==========================================
 st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
 st.title("🇭🇰 香港交通實時到站")
 
-tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近車站", "🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
+tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
 
-# --- 附近車站分頁 ---
+# --- 附近路線分頁 ---
 with tab_nearby:
-    st.subheader("📍 尋找附近巴士站 (500米內)")
-    st.info("提示：由於城巴 API 限制，目前 GPS 附近車站搜尋僅支援九巴及龍運路線。")
+    st.subheader("📍 尋找附近巴士路線 (500米內)")
+    st.info("提示：目前 GPS 搜尋僅支援九巴及龍運路線。")
     
-    # 顯示取得定位的按鈕
     location = streamlit_geolocation()
-    
-    _, stops_dict, _ = load_bus_metadata()
+    routes, stops_dict, route_stops = load_bus_metadata()
     
     if location and location.get('latitude') and location.get('longitude'):
         user_lat = location['latitude']
         user_lon = location['longitude']
         
-        # 計算距離並篩選 500 米內的車站
-        nearby_stops = []
+        # 1. 找出 500 米內的所有車站
+        nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
             if info["lat"] > 0 and info["lon"] > 0:
                 dist = calculate_distance(user_lat, user_lon, info["lat"], info["lon"])
                 if dist <= 500:
-                    nearby_stops.append({"stop_id": stop_id, "name": info["name_tc"], "dist": dist})
+                    nearby_stops_info[stop_id] = {"name": info["name_tc"], "dist": dist}
         
-        if nearby_stops:
-            # 依距離由近至遠排序
-            nearby_stops.sort(key=lambda x: x["dist"])
+        if nearby_stops_info:
+            nearby_stop_ids = set(nearby_stops_info.keys())
             
-            # 建立下拉選單，並在名字後加上距離
-            stop_opts = {s["stop_id"]: f"{s['name']} (距 {int(s['dist'])} 米)" for s in nearby_stops}
-            sel_nearby_stop = st.selectbox("請選擇您所在的巴士站：", options=list(stop_opts.keys()), format_func=lambda x: stop_opts[x])
+            # 2. 找出有經過這些車站的所有路線
+            nearby_rs = [rs for rs in route_stops if rs["stop"] in nearby_stop_ids]
             
-            st.divider()
-            st.markdown(f"**實時到站情況： {stop_opts[sel_nearby_stop]}**")
-            # 呼叫 Fragment 自動刷新該站的所有巴士 ETA
-            render_nearby_eta(sel_nearby_stop)
+            if nearby_rs:
+                # 取得獨一無二的路線列表供使用者選擇
+                available_routes = sorted(list(set(rs["route"] for rs in nearby_rs)))
+                sel_nearby_route = st.selectbox("1. 選擇附近的巴士路線：", available_routes, key="nb_route")
+                
+                # 3. 找出該路線在附近的可用方向 (利用 routes 元數據找目的地)
+                rs_for_sel_route = [rs for rs in nearby_rs if rs["route"] == sel_nearby_route]
+                route_meta = [r for r in routes if r["route"] == sel_nearby_route]
+                
+                available_dirs = {}
+                for rs in rs_for_sel_route:
+                    key = f"{rs['bound']}_{rs['service_type']}"
+                    if key not in available_dirs:
+                        dest = "未知"
+                        for rm in route_meta:
+                            if rm["bound"] == rs["bound"] and rm["service_type"] == rs["service_type"]:
+                                dest = rm["dest_tc"]
+                                break
+                        available_dirs[key] = f"往 {dest} (常規/特別班次 {rs['service_type']})"
+                
+                sel_nearby_dir = st.selectbox("2. 選擇方向：", list(available_dirs.keys()), format_func=lambda x: available_dirs[x], key="nb_dir")
+                nb_bound, nb_srv_type = sel_nearby_dir.split("_")
+                
+                # 4. 找出該路線+方向，在附近的具體車站（按距離排序）
+                final_stops = [rs for rs in rs_for_sel_route if rs["bound"] == nb_bound and rs["service_type"] == nb_srv_type]
+                final_stops.sort(key=lambda x: nearby_stops_info[x["stop"]]["dist"])
+                
+                if final_stops:
+                    stop_opts = {rs["stop"]: f"{nearby_stops_info[rs['stop']]['name']} (距 {int(nearby_stops_info[rs['stop']]['dist'])} 米)" for rs in final_stops}
+                    sel_nearby_stop = st.selectbox("3. 選擇附近的車站：", list(stop_opts.keys()), format_func=lambda x: stop_opts[x], key="nb_stop")
+                    
+                    st.divider()
+                    st.markdown(f"**📍 {stop_opts[sel_nearby_stop]}**")
+                    # 5. 直接呼叫現有的 render_kmb_eta 來顯示數據！
+                    render_kmb_eta(sel_nearby_stop, sel_nearby_route, nb_srv_type, nb_bound)
+                else:
+                    st.warning("所選方向在附近沒有車站。")
+            else:
+                st.warning("500 米範圍內未能找到任何巴士路線。")
         else:
             st.warning("500 米範圍內未能找到九巴/龍運巴士站。")
 
