@@ -145,7 +145,7 @@ def render_ctb_eta(stop, route, dir_code):
     eta_url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/ctb/{stop}/{route}"
     try:
         eta_data = requests.get(eta_url).json().get("data", [])
-        eta_data = [eta for eta in eta_data if eta.get("dir") == dir_code]
+        eta_data = [eta for eta in eta_data if eta.get("dir"] == dir_code]
         
         if not eta_data:
             st.info("目前沒有即將到達的巴士。")
@@ -174,9 +174,7 @@ def render_ctb_eta(stop, route, dir_code):
 # ==========================================
 st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
 
-# 初始化 Cookie 管理器並賦予 key 避免重新渲染錯誤
 cookie_manager = stx.CookieManager(key="cookie_manager_init")
-# 設定 Cookie 過期時間為 1 年後
 expire_date = datetime.now() + timedelta(days=365)
 
 st.title("🇭🇰 香港交通實時到站")
@@ -186,18 +184,40 @@ tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港�
 # --- 附近路線分頁 ---
 with tab_nearby:
     st.subheader("📍 尋找附近巴士路線")
-    st.info("提示：請點擊下方的 📍 按鈕獲取定位（需允許瀏覽器位置權限）。目前僅支援九巴及龍運。")
     
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.info("提示：請點擊右側的 📍 按鈕獲取定位（需允許瀏覽器位置權限）。")
+    with col_btn:
+        location = streamlit_geolocation()
+
+    with st.expander("🛠️ 點擊定位按鈕沒有反應 / 無法彈出權限？"):
+        st.write("""
+        這通常是因為瀏覽器曾經封鎖了位置權限，系統無法強制再次詢問。請手動更改設定：
+        * **iPhone (Safari):** 點擊網址列左上角「aA」圖示 ➔ 網站設定 ➔ 位置 ➔ 選擇「允許」。
+        * **Android (Chrome):** 點擊網址列左上角「鎖頭 🔒」圖示 ➔ 權限 ➔ 位置 ➔ 選擇「允許」。
+        *(設定完成後，請重新整理網頁再試一次)*
+        """)
+
     search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
     
-    location = streamlit_geolocation()
+    # 初始化 Session State 記憶 GPS 座標
+    if 'user_lat' not in st.session_state:
+        st.session_state['user_lat'] = None
+    if 'user_lon' not in st.session_state:
+        st.session_state['user_lon'] = None
+
     routes, stops_dict, route_stops = load_bus_metadata()
     
     if location and location.get('latitude') and location.get('longitude'):
-        user_lat = location['latitude']
-        user_lon = location['longitude']
+        st.session_state['user_lat'] = location['latitude']
+        st.session_state['user_lon'] = location['longitude']
         
-        st.success(f"✅ 成功獲取位置！(搜尋範圍: {search_radius} 米)")
+    if st.session_state['user_lat'] and st.session_state['user_lon']:
+        user_lat = st.session_state['user_lat']
+        user_lon = st.session_state['user_lon']
+        
+        st.success(f"✅ 已成功定位！(搜尋範圍: {search_radius} 米)")
         
         nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
@@ -248,14 +268,13 @@ with tab_nearby:
         else:
             st.warning(f"⚠️ {search_radius} 米範圍內未能找到九巴/龍運巴士站，請嘗試拉大搜尋範圍。")
     else:
-        st.warning("⏳ 等待定位中... 請點擊上方的「📍」按鈕。如果沒有反應，請確保手機瀏覽器已開啟「允許存取位置」權限。")
+        st.warning("⏳ 等待定位中... 請點擊上方的「📍」按鈕。")
 
 
 # --- 港鐵分頁 ---
 with tab_mtr:
     st.subheader("🚇 港鐵下班車")
     
-    # 讀取 MTR 記憶
     saved_mtr_line = cookie_manager.get("saved_mtr_line")
     line_keys = list(MTR_DATA.keys())
     line_idx = line_keys.index(saved_mtr_line) if saved_mtr_line in line_keys else 0
@@ -284,7 +303,6 @@ with tab_bus:
     if routes:
         unique_routes = sorted(list(set([r["route"] for r in routes])))
         
-        # 讀取 KMB 記憶
         saved_kmb_route = cookie_manager.get("saved_kmb_route")
         kmb_idx = unique_routes.index(saved_kmb_route) if saved_kmb_route in unique_routes else 0
         
@@ -313,7 +331,6 @@ with tab_ctb:
     if ctb_routes:
         route_list = [r["route"] for r in ctb_routes]
         
-        # 讀取 城巴 記憶
         saved_ctb_route = cookie_manager.get("saved_ctb_route")
         ctb_idx = route_list.index(saved_ctb_route) if saved_ctb_route in route_list else 0
         
