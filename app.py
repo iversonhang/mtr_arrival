@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 import math
-from streamlit_geolocation import streamlit_geolocation
+import streamlit.components.v1 as components
 import extra_streamlit_components as stx
 
 # ==========================================
@@ -25,7 +25,7 @@ MTR_DATA = {
     "AEL": {"name": "機場快綫", "stations": {"HOK": "香港", "KOW": "九龍", "TSY": "青衣", "AIR": "機場", "AWE": "博覽館"}},
     "TCL": {"name": "東涌綫", "stations": {"HOK": "香港", "KOW": "九龍", "OLY": "奧運", "NAC": "南昌", "LAK": "荔景", "TSY": "青衣", "SUN": "欣澳", "TUC": "東涌"}},
     "TML": {"name": "屯馬綫", "stations": {"WKS": "烏溪沙", "MOS": "馬鞍山", "HEO": "恆安", "TSH": "大水坑", "SHM": "石門", "CIO": "第一城", "STW": "沙田圍", "CKT": "車公廟", "TAW": "大圍", "HIK": "顯徑", "DIH": "鑽石山", "KAT": "啟德", "SUW": "宋皇臺", "TKW": "土瓜灣", "HOM": "何文田", "HUH": "紅磡", "ETS": "尖東", "AUS": "柯士甸", "NAC": "南昌", "MEF": "美孚", "TWW": "荃灣西", "KSR": "錦上路", "YUL": "元朗", "LOP": "朗屏", "TIS": "天水圍", "SIH": "兆康", "TUM": "屯門"}},
-    "TKL": {"name": "將軍澳綫", "stations": {"NOP": "北角", "QUB": "鰂魚涌", "YAT": "油塘", "TIK": "調景嶺", "TKO": "將軍澳", "LHP": "康城", "HAO": "坑口", "POA": "寶琳"}},
+    "TKL": {"name": "將軍澳綫", "stations": {"NOP": "北角", "QUB": "鰂魚涌", "YAT": "油塘", "TIK": "調景嶺", "TKO": "將軍澳", "LHP": "康城", "HAO": "Hang Hau", "POA": "寶琳"}},
     "EAL": {"name": "東鐵綫", "stations": {"ADM": "金鐘", "EXH": "會展", "HUH": "紅磡", "MKK": "旺角東", "KOT": "九龍塘", "TAW": "大圍", "SHT": "沙田", "FOT": "火炭", "RAC": "馬場", "UNI": "大學", "TAP": "大埔墟", "TWO": "太和", "FAN": "粉嶺", "SHS": "上水", "LOW": "羅湖", "LMC": "落馬洲"}},
     "SIL": {"name": "南港島綫", "stations": {"ADM": "金鐘", "OCP": "海洋公園", "WCH": "黃竹坑", "LET": "利東", "SOH": "海怡半島"}},
     "TWL": {"name": "荃灣綫", "stations": {"CEN": "中環", "ADM": "金鐘", "TST": "尖沙咀", "JOR": "佐敦", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SSP": "深水埗", "CSW": "長沙灣", "LCK": "荔枝角", "MEF": "美孚", "LAK": "荔景", "KWF": "葵芳", "KWH": "葵興", "TWH": "大窩口", "TSW": "荃灣"}},
@@ -145,11 +145,10 @@ def render_ctb_eta(stop, route, dir_code):
     eta_url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/ctb/{stop}/{route}"
     try:
         eta_data = requests.get(eta_url).json().get("data", [])
-        # 修正此處的括號錯誤
         eta_data = [eta for eta in eta_data if eta.get("dir") == dir_code]
         
         if not eta_data:
-            st.info("目前沒有即將到達的巴士。")
+            st.info("print 目前沒有即將到達的巴士。")
         else:
             for eta in eta_data:
                 eta_time = eta.get("eta")
@@ -185,19 +184,61 @@ tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港�
 # --- 附近路線分頁 ---
 with tab_nearby:
     st.subheader("📍 尋找附近巴士路線")
-    
-    col_info, col_btn = st.columns([3, 1])
-    with col_info:
-        st.info("提示：請點擊右側的 📍 按鈕獲取定位（需允許瀏覽器位置權限）。")
-    with col_btn:
-        location = streamlit_geolocation()
+    st.info("支援所有主流瀏覽器 (Safari, Chrome, Firefox, Edge)。點擊下方按鈕即可快速啟用定位。")
 
-    with st.expander("🛠️ 點擊定位按鈕沒有反應 / 無法彈出權限？"):
+    # 檢查網址列是否有透過 JS 傳回的經緯度
+    if "lat" in st.query_params and "lon" in st.query_params:
+        try:
+            st.session_state['user_lat'] = float(st.query_params["lat"])
+            st.session_state['user_lon'] = float(st.query_params["lon"])
+        except ValueError:
+            pass
+
+    # 嵌入原生跨瀏覽器 GPS 按鈕 (HTML/JS)
+    components.html("""
+        <div style="text-align: center; font-family: sans-serif; padding: 5px;">
+            <button onclick="getGPS()" style="background-color: #ff4b4b; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                📍 點擊這裡偵測我的位置
+            </button>
+            <p id="gps-status" style="font-size: 13px; color: #555; margin-top: 6px;"></p>
+        </div>
+        <script>
+        function getGPS() {
+            const status = document.getElementById('gps-status');
+            if (!navigator.geolocation) {
+                status.innerHTML = "❌ 您的瀏覽器不支援地理定位";
+                return;
+            }
+            status.innerHTML = "⏳ 正在取得定位，請允許瀏覽器權限...";
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    status.innerHTML = "✅ 定位成功！正在載入附近路線...";
+                    // 自動重新整理網頁並帶入座標參數
+                    const currentUrl = window.location.href.split('?')[0];
+                    window.location.href = currentUrl + '?lat=' + lat + '&lon=' + lon;
+                },
+                (error) => {
+                    let msg = error.message;
+                    if(error.code === 1) msg = "您已拒絕位置權限";
+                    else if(error.code === 2) msg = "無法取得位置訊號";
+                    else if(error.code === 3) msg = "定位逾時";
+                    status.innerHTML = "❌ 定位失敗: " + msg;
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+        </script>
+    """, height=85)
+
+    with st.expander("🛠️️ 如果按鈕沒有反應 / 提示被拒絕？"):
         st.write("""
-        這通常是因為瀏覽器曾經封鎖了位置權限，系統無法強制再次詢問。請手動更改設定：
-        * **iPhone (Safari):** 點擊網址列左上角「aA」圖示 ➔ 網站設定 ➔ 位置 ➔ 選擇「允許」。
-        * **Android (Chrome):** 點擊網址列左上角「鎖頭 🔒」圖示 ➔ 權限 ➔ 位置 ➔ 選擇「允許」。
-        *(設定完成後，請重新整理網頁再試一次)*
+        如果您先前不小心封鎖了定位，瀏覽器可能不會再次跳出詢問視窗。請手動開啟：
+        * **iPhone (Safari):** 點擊網址列左上角「aA」➔ 網站設定 ➔ 位置 ➔ 改為「允許」。
+        * **Android (Chrome):** 點擊網址列左上角「鎖頭 🔒」➔ 權限 ➔ 位置 ➔ 改為「允許」。
+        *(設定完成後請重新整理網頁)*
         """)
 
     search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
@@ -209,15 +250,11 @@ with tab_nearby:
 
     routes, stops_dict, route_stops = load_bus_metadata()
     
-    if location and location.get('latitude') and location.get('longitude'):
-        st.session_state['user_lat'] = location['latitude']
-        st.session_state['user_lon'] = location['longitude']
-        
     if st.session_state['user_lat'] and st.session_state['user_lon']:
         user_lat = st.session_state['user_lat']
         user_lon = st.session_state['user_lon']
         
-        st.success(f"✅ 已成功定位！(搜尋範圍: {search_radius} 米)")
+        st.success(f"✅ 已成功套用座標！(搜尋範圍: {search_radius} 米)")
         
         nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
@@ -268,7 +305,7 @@ with tab_nearby:
         else:
             st.warning(f"⚠️ {search_radius} 米範圍內未能找到九巴/龍運巴士站，請嘗試拉大搜尋範圍。")
     else:
-        st.warning("⏳ 等待定位中... 請點擊上方的「📍」按鈕。")
+        st.warning("⏳ 請點擊上方紅色按鈕來偵測您的目前位置。")
 
 
 # --- 港鐵分頁 ---
