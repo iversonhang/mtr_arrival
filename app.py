@@ -26,9 +26,9 @@ MTR_DATA = {
     "TCL": {"name": "東涌綫", "stations": {"HOK": "香港", "KOW": "九龍", "OLY": "奧運", "NAC": "南昌", "LAK": "荔景", "TSY": "青衣", "SUN": "欣澳", "TUC": "東涌"}},
     "TML": {"name": "屯馬綫", "stations": {"WKS": "烏溪沙", "MOS": "馬鞍山", "HEO": "恆安", "TSH": "大水坑", "SHM": "石門", "CIO": "第一城", "STW": "沙田圍", "CKT": "車公廟", "TAW": "大圍", "HIK": "顯徑", "DIH": "鑽石山", "KAT": "啟德", "SUW": "宋皇臺", "TKW": "土瓜灣", "HOM": "何文田", "HUH": "紅磡", "ETS": "尖東", "AUS": "柯士甸", "NAC": "南昌", "MEF": "美孚", "TWW": "荃灣西", "KSR": "錦上路", "YUL": "元朗", "LOP": "朗屏", "TIS": "天水圍", "SIH": "兆康", "TUM": "屯門"}},
     "TKL": {"name": "將軍澳綫", "stations": {"NOP": "北角", "QUB": "鰂魚涌", "YAT": "油塘", "TIK": "調景嶺", "TKO": "將軍澳", "LHP": "康城", "HAO": "Hang Hau", "POA": "寶琳"}},
-    "EAL": {"name": "東鐵綫", "stations": {"ADM": "金鐘", "EXH": "會展", "HUH": "紅磡", "MKK": "旺角東", "KOT": "九龍塘", "TAW": "大圍", "SHT": "沙田", "FOT": "火炭", "RAC": "馬場", "UNI": "大學", "TAP": "大埔墟", "TWO": "太和", "FAN": "粉嶺", "SHS": "上水", "LOW": "羅湖", "LMC": "落馬洲"}},
+    "EAL": {"name": "東鐵綫", "stations": {"ADM": "金鐘", "EXH": "會展", "HUH": "紅磡", "MKK": "旺角東", "KOT": "九龍塘", "TAW": "大圍", "SHT": "沙田", "FOT": "火炭", "RAC": "馬場", "UNI": "University", "TAP": "大埔墟", "TWO": "太和", "FAN": "粉嶺", "SHS": "上水", "LOW": "羅 Wu", "LMC": "落馬洲"}},
     "SIL": {"name": "南港島綫", "stations": {"ADM": "金鐘", "OCP": "海洋公園", "WCH": "黃竹坑", "LET": "利東", "SOH": "海怡半島"}},
-    "TWL": {"name": "荃灣綫", "stations": {"CEN": "中環", "ADM": "金鐘", "TST": "尖沙咀", "JOR": "佐敦", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SSP": "深水埗", "CSW": "長沙灣", "LCK": "荔枝角", "MEF": "美孚", "LAK": "荔景", "KWF": "葵芳", "KWH": "葵興", "TWH": "大窩口", "TSW": "荃灣"}},
+    "TWL": {"name": "荃灣綫", "stations": {"CEN": "中環", "ADM": "金鐘", "TST": "尖沙咀", "JOR": "佐敦", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SSP": "深水埗", "CSW": "長沙灣", "LCK": "荔枝角", "MEF": "美孚", "LAK": "荔景", "KWF": "葵 Fong", "KWH": "葵興", "TWH": "大窩口", "TSW": "荃灣"}},
     "ISL": {"name": "港島綫", "stations": {"KET": "堅尼地城", "HKU": "香港大學", "SYP": "西營盤", "SHW": "上環", "CEN": "中環", "ADM": "金鐘", "WAC": "灣仔", "CAB": "銅鑼灣", "TIH": "天后", "FOH": "炮台山", "NOP": "北角", "QUB": "鰂魚涌", "TAK": "太古", "SWH": "西灣河", "SKW": "筲箕灣", "HFC": "杏花邨", "CHW": "柴灣"}},
     "KTL": {"name": "觀塘綫", "stations": {"WHA": "黃埔", "HOM": "何文田", "YMT": "油麻地", "MOK": "旺角", "PRE": "太子", "SKM": "石硤尾", "KOT": "九龍塘", "LOF": "樂富", "WTS": "黃大仙", "DIH": "鑽石山", "CHH": "彩虹", "KOB": "九龍灣", "NTK": "牛頭角", "KWT": "觀塘", "LAT": "藍田", "YAT": "油塘", "TIK": "調景嶺"}},
     "DRL": {"name": "迪士尼綫", "stations": {"SUN": "欣澳", "DIS": "迪士尼"}}
@@ -184,23 +184,9 @@ tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港�
 # --- 附近路線分頁 ---
 with tab_nearby:
     st.subheader("📍 尋找附近巴士路線")
-    st.info("支援所有主流瀏覽器 (Safari, Chrome, Firefox, Edge)。點擊下方按鈕即可快速啟用定位。")
+    st.info("點擊下方按鈕偵測位置，系統會自動列出搜尋範圍內的九巴路線。")
 
-    # 初始化 Session State
-    if 'user_lat' not in st.session_state:
-        st.session_state['user_lat'] = None
-    if 'user_lon' not in st.session_state:
-        st.session_state['user_lon'] = None
-
-    # 檢查網址列是否有傳回的經緯度，並存入 Session State
-    if "lat" in st.query_params and "lon" in st.query_params:
-        try:
-            st.session_state['user_lat'] = float(st.query_params["lat"])
-            st.session_state['user_lon'] = float(st.query_params["lon"])
-        except ValueError:
-            pass
-
-    # 嵌入原生跨瀏覽器 GPS 按鈕 (HTML/JS)
+    # 嵌入使用 localStorage 的 HTML/JS 跨瀏覽器定位按鈕
     components.html("""
         <div style="text-align: center; font-family: sans-serif; padding: 5px;">
             <button onclick="getGPS()" style="background-color: #ff4b4b; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -221,9 +207,11 @@ with tab_nearby:
                 (position) => {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
-                    status.innerHTML = "✅ 定位成功！正在載入附近路線...";
-                    const currentUrl = window.location.href.split('?')[0];
-                    window.location.href = currentUrl + '?lat=' + lat + '&lon=' + lon;
+                    // 存入瀏覽器 localStorage
+                    localStorage.setItem('user_lat', lat);
+                    localStorage.setItem('user_lon', lon);
+                    status.innerHTML = "✅ 定位成功！正在重新整理...";
+                    window.location.reload();
                 },
                 (error) => {
                     let msg = error.message;
@@ -238,6 +226,30 @@ with tab_nearby:
         </script>
     """, height=85)
 
+    # 讀取網址列或透過一段輕量 JS 把 localStorage 的經緯度讀回來給 Streamlit
+    # 這裡我們使用隱藏的元件讀取 localStorage 轉成網址參數
+    components.html("""
+        <script>
+        const lat = localStorage.getItem('user_lat');
+        const lon = localStorage.getItem('user_lon');
+        if (lat && lon && !window.location.search.includes('lat=')) {
+            const currentUrl = window.location.href.split('?')[0];
+            window.location.href = currentUrl + '?lat=' + lat + '&lon=' + lon;
+        }
+        </script>
+    """, height=0)
+
+    # 清除定位按鈕
+    if st.button("🔄 重設/清除目前定位記憶"):
+        components.html("""
+            <script>
+            localStorage.removeItem('user_lat');
+            localStorage.removeItem('user_lon');
+            const currentUrl = window.location.href.split('?')[0];
+            window.location.href = currentUrl;
+            </script>
+        """, height=0)
+
     with st.expander("🛠 如果按鈕沒有反應 / 提示被拒絕？"):
         st.write("""
         如果您先前不小心封鎖了定位，瀏覽器可能不會再次跳出詢問視窗。請手動開啟：
@@ -247,9 +259,22 @@ with tab_nearby:
         """)
 
     search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
+    
+    if 'user_lat' not in st.session_state:
+        st.session_state['user_lat'] = None
+    if 'user_lon' not in st.session_state:
+        st.session_state['user_lon'] = None
+
+    # 從網址參數抓取經緯度
+    if "lat" in st.query_params and "lon" in st.query_params:
+        try:
+            st.session_state['user_lat'] = float(st.query_params["lat"])
+            st.session_state['user_lon'] = float(st.query_params["lon"])
+        except ValueError:
+            pass
+
     routes, stops_dict, route_stops = load_bus_metadata()
     
-    # 關鍵修正：直接檢查 st.session_state 裡面是否有座標
     if st.session_state['user_lat'] and st.session_state['user_lon']:
         user_lat = st.session_state['user_lat']
         user_lon = st.session_state['user_lon']
