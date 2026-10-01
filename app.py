@@ -1,6 +1,21 @@
 import streamlit as st
 import requests
 from datetime import datetime
+import math
+from streamlit_geolocation import streamlit_geolocation
+
+# ==========================================
+# 0. 輔助函數：計算 GPS 距離 (Haversine formula)
+# ==========================================
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371000 # 地球半徑 (米)
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    
+    a = math.sin(delta_phi/2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2.0)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c # 回傳距離 (米)
 
 # ==========================================
 # 1. 港鐵 (MTR) 數據設定
@@ -31,7 +46,17 @@ def load_bus_metadata():
     routes = requests.get(f"{base_url}/route").json().get("data", [])
     stops_raw = requests.get(f"{base_url}/stop").json().get("data", [])
     route_stops = requests.get(f"{base_url}/route-stop").json().get("data", [])
-    stops_dict = {s["stop"]: {"name_en": s.get("name_en", ""), "name_tc": s.get("name_tc", "")} for s in stops_raw}
+    
+    # 保存座標供 GPS 距離計算使用
+    stops_dict = {
+        s["stop"]: {
+            "name_en": s.get("name_en", ""),
+            "name_tc": s.get("name_tc", ""),
+            "lat": float(s.get("lat", 0)) if s.get("lat") else 0.0,
+            "lon": float(s.get("long", 0)) if s.get("long") else 0.0
+        } 
+        for s in stops_raw
+    }
     return routes, stops_dict, route_stops
 
 @st.cache_data
@@ -53,6 +78,34 @@ def get_ctb_route_stops(route, direction):
 # ==========================================
 # 3. 自動刷新模塊 (每 60 秒更新一次)
 # ==========================================
+@st.fragment(run_every=60)
+def render_nearby_eta(stop_id):
+    # 這是另一個九巴 API：直接取得特定車站的所有巴士班次
+    eta_url = f"https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/{stop_id}"
+    try:
+        eta_data = requests.get(eta_url).json().get("data", [])
+        valid_etas = [eta for eta in eta_data if eta.get("eta")]
+        
+        if not valid_etas:
+            st.info("此車站目前沒有即將到達的巴士。")
+        else:
+            # 依據到達時間排序
+            valid_etas.sort(key=lambda x: x["eta"])
+            
+            for eta in valid_etas:
+                route = eta.get("route", "")
+                dest = eta.get("dest_tc", "")
+                rmk = eta.get("rmk_tc", "")
+                eta_dt = datetime.fromisoformat(eta.get("eta"))
+                
+                diff_mins = int((eta_dt - datetime.now(eta_dt.tzinfo)).total_seconds() / 60)
+                time_msg = "即將抵達" if diff_mins <= 0 else f"{diff_mins} 分鐘"
+                
+                st.success(f"🚍 **路線 {route}** ➔ **往 {dest}**\n\n即將到達： **{time_msg}** ({eta_dt.strftime('%H:%M')}) {f'- {rmk}' if rmk else ''}")
+        st.caption(f"🔄 最後更新時間：{datetime.now().strftime('%H:%M:%S')}")
+    except Exception as e:
+        st.error(f"獲取數據時發生錯誤: {e}")
+
 @st.fragment(run_every=60)
 def render_mtr_eta(selected_line, selected_sta):
     url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={selected_line}&sta={selected_sta}&lang=tc"
@@ -149,7 +202,45 @@ def render_ctb_eta(stop, route, dir_code):
 st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
 st.title("🇭🇰 香港交通實時到站")
 
-tab_mtr, tab_bus, tab_ctb = st.tabs(["🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
+tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近車站", "🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
+
+# --- 附近車站分頁 ---
+with tab_nearby:
+    st.subheader("📍 尋找附近巴士站 (500米內)")
+    st.info("提示：由於城巴 API 限制，目前 GPS 附近車站搜尋僅支援九巴及龍運路線。")
+    
+    # 顯示取得定位的按鈕
+    location = streamlit_geolocation()
+    
+    _, stops_dict, _ = load_bus_metadata()
+    
+    if location and location.get('latitude') and location.get('longitude'):
+        user_lat = location['latitude']
+        user_lon = location['longitude']
+        
+        # 計算距離並篩選 500 米內的車站
+        nearby_stops = []
+        for stop_id, info in stops_dict.items():
+            if info["lat"] > 0 and info["lon"] > 0:
+                dist = calculate_distance(user_lat, user_lon, info["lat"], info["lon"])
+                if dist <= 500:
+                    nearby_stops.append({"stop_id": stop_id, "name": info["name_tc"], "dist": dist})
+        
+        if nearby_stops:
+            # 依距離由近至遠排序
+            nearby_stops.sort(key=lambda x: x["dist"])
+            
+            # 建立下拉選單，並在名字後加上距離
+            stop_opts = {s["stop_id"]: f"{s['name']} (距 {int(s['dist'])} 米)" for s in nearby_stops}
+            sel_nearby_stop = st.selectbox("請選擇您所在的巴士站：", options=list(stop_opts.keys()), format_func=lambda x: stop_opts[x])
+            
+            st.divider()
+            st.markdown(f"**實時到站情況： {stop_opts[sel_nearby_stop]}**")
+            # 呼叫 Fragment 自動刷新該站的所有巴士 ETA
+            render_nearby_eta(sel_nearby_stop)
+        else:
+            st.warning("500 米範圍內未能找到九巴/龍運巴士站。")
+
 
 # --- 港鐵分頁 ---
 with tab_mtr:
