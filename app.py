@@ -174,8 +174,8 @@ def render_ctb_eta(stop, route, dir_code):
 # ==========================================
 st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
 
-# 初始化 Cookie 管理器
-cookie_manager = stx.CookieManager()
+# 初始化 Cookie 管理器並賦予 key 避免重新渲染錯誤
+cookie_manager = stx.CookieManager(key="cookie_manager_init")
 # 設定 Cookie 過期時間為 1 年後
 expire_date = datetime.now() + timedelta(days=365)
 
@@ -256,7 +256,8 @@ with tab_mtr:
     
     sel_line = st.selectbox("選擇港鐵路綫：", options=line_keys, index=line_idx, format_func=lambda x: f"{MTR_DATA[x]['name']}", key="mtr_line")
     if sel_line != saved_mtr_line:
-        cookie_manager.set("saved_mtr_line", sel_line, expires_at=expire_date)
+        # 新增 key="set_cookie_mtr_line"
+        cookie_manager.set("saved_mtr_line", sel_line, expires_at=expire_date, key="set_cookie_mtr_line")
     
     sta_keys = list(MTR_DATA[sel_line]["stations"].keys())
     saved_mtr_sta = cookie_manager.get("saved_mtr_sta")
@@ -264,7 +265,8 @@ with tab_mtr:
     
     sel_sta = st.selectbox("選擇車站：", options=sta_keys, index=sta_idx, format_func=lambda x: f"{MTR_DATA[sel_line]['stations'][x]}", key="mtr_sta")
     if sel_sta != saved_mtr_sta:
-        cookie_manager.set("saved_mtr_sta", sel_sta, expires_at=expire_date)
+        # 新增 key="set_cookie_mtr_sta"
+        cookie_manager.set("saved_mtr_sta", sel_sta, expires_at=expire_date, key="set_cookie_mtr_sta")
     
     st.divider()
     render_mtr_eta(sel_line, sel_sta)
@@ -284,7 +286,8 @@ with tab_bus:
         
         sel_route = st.selectbox("1. 選擇巴士路綫：", unique_routes, index=kmb_idx, key="kmb_route")
         if sel_route != saved_kmb_route:
-            cookie_manager.set("saved_kmb_route", sel_route, expires_at=expire_date)
+            # 新增 key="set_cookie_kmb_route"
+            cookie_manager.set("saved_kmb_route", sel_route, expires_at=expire_date, key="set_cookie_kmb_route")
         
         route_dirs = [r for r in routes if r["route"] == sel_route]
         dir_options = {f"{r['bound']}_{r['service_type']}": f"往 {r['dest_tc']} (常規/特別班次 {r['service_type']})" for r in route_dirs}
@@ -313,7 +316,8 @@ with tab_ctb:
         
         sel_ctb_route = st.selectbox("1. 選擇城巴路綫：", route_list, index=ctb_idx, key="ctb_route_sel")
         if sel_ctb_route != saved_ctb_route:
-            cookie_manager.set("saved_ctb_route", sel_ctb_route, expires_at=expire_date)
+            # 新增 key="set_cookie_ctb_route"
+            cookie_manager.set("saved_ctb_route", sel_ctb_route, expires_at=expire_date, key="set_cookie_ctb_route")
         
         route_meta = next(r for r in ctb_routes if r["route"] == sel_ctb_route)
         dir_opts = {"outbound": f"往 {route_meta.get('dest_tc', '終點站')}", "inbound": f"往 {route_meta.get('orig_tc', '起點站')}"}
