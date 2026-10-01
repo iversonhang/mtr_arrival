@@ -185,8 +185,10 @@ tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港�
 
 # --- 附近路線分頁 ---
 with tab_nearby:
-    st.subheader("📍 尋找附近巴士路線 (500米內)")
-    st.info("提示：目前 GPS 搜尋僅支援九巴及龍運路線。")
+    st.subheader("📍 尋找附近巴士路線")
+    st.info("提示：請點擊下方的 📍 按鈕獲取定位（需允許瀏覽器位置權限）。目前僅支援九巴及龍運。")
+    
+    search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
     
     location = streamlit_geolocation()
     routes, stops_dict, route_stops = load_bus_metadata()
@@ -195,11 +197,13 @@ with tab_nearby:
         user_lat = location['latitude']
         user_lon = location['longitude']
         
+        st.success(f"✅ 成功獲取位置！(搜尋範圍: {search_radius} 米)")
+        
         nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
             if info["lat"] > 0 and info["lon"] > 0:
                 dist = calculate_distance(user_lat, user_lon, info["lat"], info["lon"])
-                if dist <= 500:
+                if dist <= search_radius:
                     nearby_stops_info[stop_id] = {"name": info["name_tc"], "dist": dist}
         
         if nearby_stops_info:
@@ -240,9 +244,11 @@ with tab_nearby:
                 else:
                     st.warning("所選方向在附近沒有車站。")
             else:
-                st.warning("500 米範圍內未能找到任何巴士路線。")
+                st.warning(f"⚠️ {search_radius} 米範圍內未能找到任何巴士路線，請嘗試拉大搜尋範圍。")
         else:
-            st.warning("500 米範圍內未能找到九巴/龍運巴士站。")
+            st.warning(f"⚠️ {search_radius} 米範圍內未能找到九巴/龍運巴士站，請嘗試拉大搜尋範圍。")
+    else:
+        st.warning("⏳ 等待定位中... 請點擊上方的「📍」按鈕。如果沒有反應，請確保手機瀏覽器已開啟「允許存取位置」權限。")
 
 
 # --- 港鐵分頁 ---
@@ -256,7 +262,6 @@ with tab_mtr:
     
     sel_line = st.selectbox("選擇港鐵路綫：", options=line_keys, index=line_idx, format_func=lambda x: f"{MTR_DATA[x]['name']}", key="mtr_line")
     if sel_line != saved_mtr_line:
-        # 新增 key="set_cookie_mtr_line"
         cookie_manager.set("saved_mtr_line", sel_line, expires_at=expire_date, key="set_cookie_mtr_line")
     
     sta_keys = list(MTR_DATA[sel_line]["stations"].keys())
@@ -265,7 +270,6 @@ with tab_mtr:
     
     sel_sta = st.selectbox("選擇車站：", options=sta_keys, index=sta_idx, format_func=lambda x: f"{MTR_DATA[sel_line]['stations'][x]}", key="mtr_sta")
     if sel_sta != saved_mtr_sta:
-        # 新增 key="set_cookie_mtr_sta"
         cookie_manager.set("saved_mtr_sta", sel_sta, expires_at=expire_date, key="set_cookie_mtr_sta")
     
     st.divider()
@@ -286,7 +290,6 @@ with tab_bus:
         
         sel_route = st.selectbox("1. 選擇巴士路綫：", unique_routes, index=kmb_idx, key="kmb_route")
         if sel_route != saved_kmb_route:
-            # 新增 key="set_cookie_kmb_route"
             cookie_manager.set("saved_kmb_route", sel_route, expires_at=expire_date, key="set_cookie_kmb_route")
         
         route_dirs = [r for r in routes if r["route"] == sel_route]
@@ -316,7 +319,6 @@ with tab_ctb:
         
         sel_ctb_route = st.selectbox("1. 選擇城巴路綫：", route_list, index=ctb_idx, key="ctb_route_sel")
         if sel_ctb_route != saved_ctb_route:
-            # 新增 key="set_cookie_ctb_route"
             cookie_manager.set("saved_ctb_route", sel_ctb_route, expires_at=expire_date, key="set_cookie_ctb_route")
         
         route_meta = next(r for r in ctb_routes if r["route"] == sel_ctb_route)
