@@ -148,7 +148,7 @@ def render_ctb_eta(stop, route, dir_code):
         eta_data = [eta for eta in eta_data if eta.get("dir") == dir_code]
         
         if not eta_data:
-            st.info("print 目前沒有即將到達的巴士。")
+            st.info("目前沒有即將到達的巴士。")
         else:
             for eta in eta_data:
                 eta_time = eta.get("eta")
@@ -186,7 +186,13 @@ with tab_nearby:
     st.subheader("📍 尋找附近巴士路線")
     st.info("支援所有主流瀏覽器 (Safari, Chrome, Firefox, Edge)。點擊下方按鈕即可快速啟用定位。")
 
-    # 檢查網址列是否有透過 JS 傳回的經緯度
+    # 初始化 Session State
+    if 'user_lat' not in st.session_state:
+        st.session_state['user_lat'] = None
+    if 'user_lon' not in st.session_state:
+        st.session_state['user_lon'] = None
+
+    # 檢查網址列是否有傳回的經緯度，並存入 Session State
     if "lat" in st.query_params and "lon" in st.query_params:
         try:
             st.session_state['user_lat'] = float(st.query_params["lat"])
@@ -216,7 +222,6 @@ with tab_nearby:
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
                     status.innerHTML = "✅ 定位成功！正在載入附近路線...";
-                    // 自動重新整理網頁並帶入座標參數
                     const currentUrl = window.location.href.split('?')[0];
                     window.location.href = currentUrl + '?lat=' + lat + '&lon=' + lon;
                 },
@@ -233,7 +238,7 @@ with tab_nearby:
         </script>
     """, height=85)
 
-    with st.expander("🛠️️ 如果按鈕沒有反應 / 提示被拒絕？"):
+    with st.expander("🛠 如果按鈕沒有反應 / 提示被拒絕？"):
         st.write("""
         如果您先前不小心封鎖了定位，瀏覽器可能不會再次跳出詢問視窗。請手動開啟：
         * **iPhone (Safari):** 點擊網址列左上角「aA」➔ 網站設定 ➔ 位置 ➔ 改為「允許」。
@@ -242,19 +247,14 @@ with tab_nearby:
         """)
 
     search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
-    
-    if 'user_lat' not in st.session_state:
-        st.session_state['user_lat'] = None
-    if 'user_lon' not in st.session_state:
-        st.session_state['user_lon'] = None
-
     routes, stops_dict, route_stops = load_bus_metadata()
     
+    # 關鍵修正：直接檢查 st.session_state 裡面是否有座標
     if st.session_state['user_lat'] and st.session_state['user_lon']:
         user_lat = st.session_state['user_lat']
         user_lon = st.session_state['user_lon']
         
-        st.success(f"✅ 已成功套用座標！(搜尋範圍: {search_radius} 米)")
+        st.success(f"✅ 已成功載入座標！(搜尋範圍: {search_radius} 米)")
         
         nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
