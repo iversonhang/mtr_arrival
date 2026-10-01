@@ -1,4 +1,4 @@
 streamlit>=1.40.0
 requests>=2.32.0
-streamlit-geolocation
-extra-streamlit-components
+streamlit-geolocation==0.0.10
+extra-streamlit-components==0.1.80
