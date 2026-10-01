@@ -1,24 +1,25 @@
 import streamlit as st
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 from streamlit_geolocation import streamlit_geolocation
+import extra_streamlit_components as stx
 
 # ==========================================
-# 0. 輔助函數：計算 GPS 距離 (Haversine formula)
+# 0. 輔助函數：計算 GPS 距離
 # ==========================================
 def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371000 # 地球半徑 (米)
+    R = 6371000 
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
     delta_lambda = math.radians(lon2 - lon1)
     
     a = math.sin(delta_phi/2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2.0)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c # 回傳距離 (米)
+    return R * c 
 
 # ==========================================
-# 1. 港鐵 (MTR) 數據設定
+# 1. 港鐵數據設定
 # ==========================================
 MTR_DATA = {
     "AEL": {"name": "機場快綫", "stations": {"HOK": "香港", "KOW": "九龍", "TSY": "青衣", "AIR": "機場", "AWE": "博覽館"}},
@@ -37,9 +38,8 @@ ALL_STATIONS = {}
 for line_info in MTR_DATA.values():
     ALL_STATIONS.update(line_info["stations"])
 
-
 # ==========================================
-# 2. API 數據快取函數
+# 2. API 快取函數
 # ==========================================
 @st.cache_data
 def load_bus_metadata():
@@ -75,9 +75,8 @@ def get_ctb_route_stops(route, direction):
         stop_details[stop_id] = requests.get(stop_url).json().get("data", {})
     return route_stops, stop_details
 
-
 # ==========================================
-# 3. 自動刷新模塊 (每 60 秒更新一次)
+# 3. 自動刷新模塊
 # ==========================================
 @st.fragment(run_every=60)
 def render_mtr_eta(selected_line, selected_sta):
@@ -174,6 +173,12 @@ def render_ctb_eta(stop, route, dir_code):
 # 4. 主介面佈局
 # ==========================================
 st.set_page_config(page_title="香港交通實時到站", page_icon="🇭🇰")
+
+# 初始化 Cookie 管理器
+cookie_manager = stx.CookieManager()
+# 設定 Cookie 過期時間為 1 年後
+expire_date = datetime.now() + timedelta(days=365)
+
 st.title("🇭🇰 香港交通實時到站")
 
 tab_nearby, tab_mtr, tab_bus, tab_ctb = st.tabs(["📍 附近路線", "🚇 港鐵", "🚌 九巴及龍運", "🟡 城巴"])
@@ -190,7 +195,6 @@ with tab_nearby:
         user_lat = location['latitude']
         user_lon = location['longitude']
         
-        # 1. 找出 500 米內的所有車站
         nearby_stops_info = {}
         for stop_id, info in stops_dict.items():
             if info["lat"] > 0 and info["lon"] > 0:
@@ -200,16 +204,12 @@ with tab_nearby:
         
         if nearby_stops_info:
             nearby_stop_ids = set(nearby_stops_info.keys())
-            
-            # 2. 找出有經過這些車站的所有路線
             nearby_rs = [rs for rs in route_stops if rs["stop"] in nearby_stop_ids]
             
             if nearby_rs:
-                # 取得獨一無二的路線列表供使用者選擇
                 available_routes = sorted(list(set(rs["route"] for rs in nearby_rs)))
                 sel_nearby_route = st.selectbox("1. 選擇附近的巴士路線：", available_routes, key="nb_route")
                 
-                # 3. 找出該路線在附近的可用方向 (利用 routes 元數據找目的地)
                 rs_for_sel_route = [rs for rs in nearby_rs if rs["route"] == sel_nearby_route]
                 route_meta = [r for r in routes if r["route"] == sel_nearby_route]
                 
@@ -227,7 +227,6 @@ with tab_nearby:
                 sel_nearby_dir = st.selectbox("2. 選擇方向：", list(available_dirs.keys()), format_func=lambda x: available_dirs[x], key="nb_dir")
                 nb_bound, nb_srv_type = sel_nearby_dir.split("_")
                 
-                # 4. 找出該路線+方向，在附近的具體車站（按距離排序）
                 final_stops = [rs for rs in rs_for_sel_route if rs["bound"] == nb_bound and rs["service_type"] == nb_srv_type]
                 final_stops.sort(key=lambda x: nearby_stops_info[x["stop"]]["dist"])
                 
@@ -237,7 +236,6 @@ with tab_nearby:
                     
                     st.divider()
                     st.markdown(f"**📍 {stop_opts[sel_nearby_stop]}**")
-                    # 5. 直接呼叫現有的 render_kmb_eta 來顯示數據！
                     render_kmb_eta(sel_nearby_stop, sel_nearby_route, nb_srv_type, nb_bound)
                 else:
                     st.warning("所選方向在附近沒有車站。")
@@ -250,11 +248,23 @@ with tab_nearby:
 # --- 港鐵分頁 ---
 with tab_mtr:
     st.subheader("🚇 港鐵下班車")
-    line_options = {code: info["name"] for code, info in MTR_DATA.items()}
-    sel_line = st.selectbox("選擇港鐵路綫：", options=list(line_options.keys()), format_func=lambda x: f"{line_options[x]}", key="mtr_line")
     
-    sta_options = MTR_DATA[sel_line]["stations"]
-    sel_sta = st.selectbox("選擇車站：", options=list(sta_options.keys()), format_func=lambda x: f"{sta_options[x]}", key="mtr_sta")
+    # 讀取 MTR 記憶
+    saved_mtr_line = cookie_manager.get("saved_mtr_line")
+    line_keys = list(MTR_DATA.keys())
+    line_idx = line_keys.index(saved_mtr_line) if saved_mtr_line in line_keys else 0
+    
+    sel_line = st.selectbox("選擇港鐵路綫：", options=line_keys, index=line_idx, format_func=lambda x: f"{MTR_DATA[x]['name']}", key="mtr_line")
+    if sel_line != saved_mtr_line:
+        cookie_manager.set("saved_mtr_line", sel_line, expires_at=expire_date)
+    
+    sta_keys = list(MTR_DATA[sel_line]["stations"].keys())
+    saved_mtr_sta = cookie_manager.get("saved_mtr_sta")
+    sta_idx = sta_keys.index(saved_mtr_sta) if saved_mtr_sta in sta_keys else 0
+    
+    sel_sta = st.selectbox("選擇車站：", options=sta_keys, index=sta_idx, format_func=lambda x: f"{MTR_DATA[sel_line]['stations'][x]}", key="mtr_sta")
+    if sel_sta != saved_mtr_sta:
+        cookie_manager.set("saved_mtr_sta", sel_sta, expires_at=expire_date)
     
     st.divider()
     render_mtr_eta(sel_line, sel_sta)
@@ -267,7 +277,14 @@ with tab_bus:
 
     if routes:
         unique_routes = sorted(list(set([r["route"] for r in routes])))
-        sel_route = st.selectbox("1. 選擇巴士路綫：", unique_routes, key="kmb_route")
+        
+        # 讀取 KMB 記憶
+        saved_kmb_route = cookie_manager.get("saved_kmb_route")
+        kmb_idx = unique_routes.index(saved_kmb_route) if saved_kmb_route in unique_routes else 0
+        
+        sel_route = st.selectbox("1. 選擇巴士路綫：", unique_routes, index=kmb_idx, key="kmb_route")
+        if sel_route != saved_kmb_route:
+            cookie_manager.set("saved_kmb_route", sel_route, expires_at=expire_date)
         
         route_dirs = [r for r in routes if r["route"] == sel_route]
         dir_options = {f"{r['bound']}_{r['service_type']}": f"往 {r['dest_tc']} (常規/特別班次 {r['service_type']})" for r in route_dirs}
@@ -288,7 +305,15 @@ with tab_ctb:
     ctb_routes = load_ctb_routes()
     
     if ctb_routes:
-        sel_ctb_route = st.selectbox("1. 選擇城巴路綫：", [r["route"] for r in ctb_routes], key="ctb_route_sel")
+        route_list = [r["route"] for r in ctb_routes]
+        
+        # 讀取 城巴 記憶
+        saved_ctb_route = cookie_manager.get("saved_ctb_route")
+        ctb_idx = route_list.index(saved_ctb_route) if saved_ctb_route in route_list else 0
+        
+        sel_ctb_route = st.selectbox("1. 選擇城巴路綫：", route_list, index=ctb_idx, key="ctb_route_sel")
+        if sel_ctb_route != saved_ctb_route:
+            cookie_manager.set("saved_ctb_route", sel_ctb_route, expires_at=expire_date)
         
         route_meta = next(r for r in ctb_routes if r["route"] == sel_ctb_route)
         dir_opts = {"outbound": f"往 {route_meta.get('dest_tc', '終點站')}", "inbound": f"往 {route_meta.get('orig_tc', '起點站')}"}
