@@ -145,7 +145,8 @@ def render_ctb_eta(stop, route, dir_code):
     eta_url = f"https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/ctb/{stop}/{route}"
     try:
         eta_data = requests.get(eta_url).json().get("data", [])
-        eta_data = [eta for eta in eta_data if eta.get("dir"] == dir_code]
+        # 修正此處的括號錯誤
+        eta_data = [eta for eta in eta_data if eta.get("dir") == dir_code]
         
         if not eta_data:
             st.info("目前沒有即將到達的巴士。")
@@ -201,7 +202,6 @@ with tab_nearby:
 
     search_radius = st.slider("選擇搜尋範圍 (米)", min_value=200, max_value=2000, value=500, step=100)
     
-    # 初始化 Session State 記憶 GPS 座標
     if 'user_lat' not in st.session_state:
         st.session_state['user_lat'] = None
     if 'user_lon' not in st.session_state:
